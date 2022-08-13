@@ -26,13 +26,13 @@ class GMailSender private constructor(
         initSession()
     }
     class Builder(
-        private var senderMail : String ,
-        private var senderPassword : String ,
-        private var receiverMail : String ,
-        private var subject : String ,
-        private var body : String ,
-        private var onSuccessCallBack : (String) -> Unit ,
-        private var onFailCallBack : (String) -> Unit ,
+        private var senderMail : String = "",
+        private var senderPassword : String = "" ,
+        private var receiverMail : String = "",
+        private var subject : String  = "",
+        private var body : String  = "",
+        private var onSuccessCallBack : (String) -> Unit ={},
+        private var onFailCallBack : (String) -> Unit ={},
     ){
         fun setSenderMail(senderMail: String): Builder {
             this.senderMail = senderMail
