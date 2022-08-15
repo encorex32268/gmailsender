@@ -1,30 +1,27 @@
-package com.lihan.automaticsendmail
-
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import java.util.*
 import javax.activation.DataHandler
 import javax.mail.*
+import javax.mail.event.TransportEvent
+import javax.mail.event.TransportListener
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeBodyPart
 import javax.mail.internet.MimeMessage
 import javax.mail.internet.MimeMultipart
+import javax.mail.util.ByteArrayDataSource
 
 class GMailSender private constructor(
-    private val senderMail : String,
-    private  val senderPassword : String,
+    private var senderMail : String,
+    private var senderPassword : String,
     private val receiverMail : String,
     private val subject : String,
     private val body : String ,
     private val onSuccessCallBack : (String) -> Unit ,
-    private val onFailCallBack : (String) -> Unit ,
+    private val onFailCallBack : (String) -> Unit
 ){
-    private lateinit var session: Session
+    private var session: Session? =null
+    private lateinit var transport: Transport
     private val _multipart: Multipart = MimeMultipart()
-    init {
-        initSession()
-    }
+
     class Builder(
         private var senderMail : String = "",
         private var senderPassword : String = "" ,
@@ -32,7 +29,7 @@ class GMailSender private constructor(
         private var subject : String  = "",
         private var body : String  = "",
         private var onSuccessCallBack : (String) -> Unit ={},
-        private var onFailCallBack : (String) -> Unit ={},
+        private var onFailCallBack : (String) -> Unit ={}
     ){
         fun setSenderMail(senderMail: String): Builder {
             this.senderMail = senderMail
@@ -92,16 +89,29 @@ class GMailSender private constructor(
         props["mail.smtp.socketFactory.class"] = "javax.net.ssl.SSLSocketFactory"
         props["mail.smtp.socketFactory.fallback"] = "false"
         props.setProperty("mail.smtp.quitwait", "false")
+
+        if (session!=null){
+            session = null
+        }
         session = Session.getDefaultInstance(props, object : Authenticator(){
             override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(senderMail, senderPassword)
+                val account = senderMail
+                val password = senderPassword
+                return PasswordAuthentication(account ,password)
             }
         })
+        session?.let {
+            transport = it.transport.apply {
+                connect("smtp.gmail.com" , senderMail , senderPassword)
+            }
+        }
+
+
     }
 
     fun send(){
-        CoroutineScope(Dispatchers.IO).launch {
         try {
+            initSession()
             val message = MimeMessage(session)
             val handler = DataHandler(ByteArrayDataSource(body.toByteArray(), "text/plain"))
             message.sender = InternetAddress(senderMail)
@@ -115,13 +125,26 @@ class GMailSender private constructor(
                 Message.RecipientType.TO,
                 InternetAddress.parse(receiverMail)
             ) else message.setRecipient(Message.RecipientType.TO, InternetAddress(receiverMail))
-            Transport.send(message)
-            onSuccessCallBack("$subject send Succeed")
+            transport.addTransportListener(object : TransportListener {
+                override fun messageDelivered(e: TransportEvent?) {
+                    onSuccessCallBack("$subject send Succeed") }
+                override fun messageNotDelivered(e: TransportEvent?) {
+                    onFailCallBack("Error : messageNotDelivered ${e?.message}") }
+                override fun messagePartiallyDelivered(e: TransportEvent?) {}
+            })
+            transport.sendMessage(message, arrayOf(InternetAddress(receiverMail)) )
+            transport.close()
+
         } catch (e: Exception) {
             e.printStackTrace()
             onFailCallBack("Error : ${e.message}")
+        }catch (e : AuthenticationFailedException){
+            onFailCallBack("Error : ${e.message}")
+        }catch (e : IllegalStateException){
+            onFailCallBack("Error : ${e.message} ")
+
         }
-        }
+
     }
 
 }
